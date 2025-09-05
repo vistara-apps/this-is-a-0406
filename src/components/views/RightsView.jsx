@@ -1,79 +1,28 @@
-import React, { useState } from 'react'
-import { BookOpen, Copy, Share2, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { BookOpen, Copy, Share2, ChevronDown, ChevronUp, AlertCircle, Sparkles } from 'lucide-react'
 import Card from '../ui/Card'
 import Button from '../ui/Button'
+import ShareButton from '../ShareButton'
 import { useApp } from '../../context/AppContext'
-
-const rightsData = {
-  'traffic-stop': {
-    title: 'Traffic Stop Rights',
-    icon: '🚗',
-    essentials: [
-      'You have the right to remain silent',
-      'You must provide driver\'s license, registration, and insurance',
-      'You do not have to consent to vehicle searches',
-      'You have the right to ask if you are free to leave'
-    ],
-    scripts: {
-      polite_compliance: 'Officer, I am exercising my right to remain silent. I do not consent to any searches. Am I free to leave?',
-      search_refusal: 'I do not consent to a search of my vehicle. I am invoking my Fourth Amendment rights.',
-      detention_inquiry: 'Officer, am I being detained or am I free to go?'
-    },
-    warnings: [
-      'Keep hands visible at all times',
-      'Do not argue or resist, even if you believe the stop is unlawful',
-      'Remember officer badge numbers and patrol car numbers'
-    ]
-  },
-  'pedestrian-stop': {
-    title: 'Pedestrian Stop Rights',
-    icon: '🚶',
-    essentials: [
-      'You have the right to remain silent',
-      'You have the right to ask if you are being detained',
-      'You generally do not have to show ID unless under arrest',
-      'You do not have to consent to searches'
-    ],
-    scripts: {
-      detention_inquiry: 'Officer, am I being detained or am I free to go?',
-      search_refusal: 'I do not consent to any searches. I am exercising my Fourth Amendment rights.',
-      silence_invocation: 'I am invoking my right to remain silent. I want to speak to a lawyer.'
-    },
-    warnings: [
-      'Keep hands visible and move slowly',
-      'Do not run or make sudden movements',
-      'State laws vary on ID requirements'
-    ]
-  },
-  'home-visit': {
-    title: 'Home Visit Rights',
-    icon: '🏠',
-    essentials: [
-      'Police need a warrant to enter your home',
-      'You do not have to let them in without a warrant',
-      'You have the right to see the warrant',
-      'You can speak through the door'
-    ],
-    scripts: {
-      warrant_request: 'Do you have a warrant? I do not consent to entry without a warrant.',
-      door_communication: 'I prefer to speak through the door. Do you have a warrant?',
-      warrant_inspection: 'May I see the warrant? I want to verify it covers this address.'
-    },
-    warnings: [
-      'Exigent circumstances may allow warrantless entry',
-      'Do not physically resist',
-      'Document everything that happens'
-    ]
-  }
-}
+import { getLegalGuide, SCENARIOS } from '../../data/legalContent'
+import { getStateName } from '../../data/states'
+import { ai } from '../../lib/openai'
+import { copyToClipboard } from '../../lib/utils'
+import toast from 'react-hot-toast'
 
 export default function RightsView() {
   const { state } = useApp()
-  const [selectedCategory, setSelectedCategory] = useState('traffic-stop')
+  const [selectedScenario, setSelectedScenario] = useState('traffic-stop')
   const [expandedSections, setExpandedSections] = useState({})
-  const [copiedScript, setCopiedScript] = useState('')
+  const [aiScript, setAiScript] = useState(null)
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false)
+  const [legalGuide, setLegalGuide] = useState(null)
 
-  const currentRights = rightsData[selectedCategory]
+  useEffect(() => {
+    // Load state-specific legal guide
+    const guide = getLegalGuide(state.user.state, state.user.language)
+    setLegalGuide(guide)
+  }, [state.user.state, state.user.language])
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
@@ -82,144 +31,267 @@ export default function RightsView() {
     }))
   }
 
-  const copyScript = async (script, scriptKey) => {
+  const handleCopyScript = async (script) => {
     try {
-      await navigator.clipboard.writeText(script)
-      setCopiedScript(scriptKey)
-      setTimeout(() => setCopiedScript(''), 2000)
-    } catch (err) {
-      console.error('Failed to copy script:', err)
+      await copyToClipboard(script)
+      toast.success('Script copied to clipboard')
+    } catch (error) {
+      toast.error('Failed to copy script')
     }
   }
 
-  const shareRights = () => {
-    const text = `Know Your Rights - ${currentRights.title}\n\nKey Scripts:\n${Object.values(currentRights.scripts).join('\n')}\n\nGet the full app: KnowYourRights`
-    
-    if (navigator.share) {
-      navigator.share({
-        title: `${currentRights.title} - KnowYourRights`,
-        text: text
-      })
-    } else {
-      copyScript(text, 'share')
+  const generateAIScript = async () => {
+    if (!state.user.state) {
+      toast.error('Please select your state first')
+      return
+    }
+
+    setIsGeneratingScript(true)
+    try {
+      const scenario = SCENARIOS.find(s => s.id === selectedScenario)
+      const script = await ai.generateScript(
+        scenario?.description || selectedScenario,
+        state.user.state,
+        state.user.language
+      )
+      setAiScript(script)
+      toast.success('AI script generated!')
+    } catch (error) {
+      console.error('Error generating AI script:', error)
+      toast.error('Failed to generate AI script. Please try again.')
+    } finally {
+      setIsGeneratingScript(false)
     }
   }
+
+  const currentScenario = SCENARIOS.find(s => s.id === selectedScenario)
+  const stateName = getStateName(state.user.state)
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="text-center text-white mb-8">
-        <h1 className="text-3xl font-bold mb-2">Know Your Rights</h1>
-        <p className="text-white/80">State-specific guidance for {state.user.state}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Know Your Rights</h1>
+          <p className="text-gray-600">State-specific legal guidance for {stateName}</p>
+        </div>
+        {legalGuide && (
+          <ShareButton content={legalGuide} type="rights" />
+        )}
       </div>
 
-      {/* Category Selector */}
+      {/* Scenario Selector */}
       <Card className="p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {Object.entries(rightsData).map(([key, data]) => (
+        <h2 className="text-lg font-semibold mb-4">Select Scenario</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {SCENARIOS.map((scenario) => (
             <button
-              key={key}
-              onClick={() => setSelectedCategory(key)}
-              className={`p-4 rounded-lg border-2 transition-all ${
-                selectedCategory === key
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-gray-200 hover:border-gray-300 text-gray-700'
+              key={scenario.id}
+              onClick={() => setSelectedScenario(scenario.id)}
+              className={`p-3 rounded-lg border text-left transition-colors ${
+                selectedScenario === scenario.id
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-gray-200 hover:border-gray-300'
               }`}
             >
-              <div className="text-2xl mb-2">{data.icon}</div>
-              <div className="font-medium text-sm">{data.title}</div>
+              <div className="text-2xl mb-1">{scenario.icon}</div>
+              <div className="font-medium text-sm">{scenario.title}</div>
+              <div className="text-xs text-gray-500">{scenario.description}</div>
             </button>
           ))}
         </div>
       </Card>
 
-      {/* Essential Rights */}
+      {/* Basic Rights */}
+      {legalGuide && (
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center">
+              <BookOpen className="w-5 h-5 mr-2 text-primary" />
+              Your Basic Rights in {stateName}
+            </h2>
+            <Button
+              onClick={() => toggleSection('basicRights')}
+              variant="ghost"
+              size="sm"
+            >
+              {expandedSections.basicRights ? <ChevronUp /> : <ChevronDown />}
+            </Button>
+          </div>
+          
+          {expandedSections.basicRights && (
+            <div className="space-y-3">
+              {legalGuide.basicRights?.map((right, index) => (
+                <div key={index} className="flex items-start space-x-3">
+                  <div className="w-2 h-2 bg-primary rounded-full mt-2 flex-shrink-0"></div>
+                  <p className="text-gray-700">{right}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Traffic Stop Guidance */}
+      {legalGuide?.trafficStop && (
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold mb-4">Traffic Stop Guidance</h2>
+          
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* What to Say */}
+            <div>
+              <h3 className="font-medium text-green-700 mb-3 flex items-center">
+                ✅ What to Say
+              </h3>
+              <div className="space-y-2">
+                {legalGuide.trafficStop.whatToSay?.map((phrase, index) => (
+                  <div key={index} className="bg-green-50 p-3 rounded-lg border border-green-200">
+                    <p className="text-sm text-green-800">{phrase}</p>
+                    <Button
+                      onClick={() => handleCopyScript(phrase)}
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 text-green-600 hover:text-green-700"
+                    >
+                      <Copy className="w-3 h-3 mr-1" />
+                      Copy
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* What NOT to Say */}
+            <div>
+              <h3 className="font-medium text-red-700 mb-3 flex items-center">
+                ❌ What NOT to Say/Do
+              </h3>
+              <div className="space-y-2">
+                {legalGuide.trafficStop.whatNotToSay?.map((item, index) => (
+                  <div key={index} className="bg-red-50 p-3 rounded-lg border border-red-200">
+                    <p className="text-sm text-red-800">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Procedure */}
+          {legalGuide.trafficStop.procedure && (
+            <div className="mt-6">
+              <h3 className="font-medium text-blue-700 mb-3">Recommended Procedure</h3>
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <ol className="space-y-2">
+                  {legalGuide.trafficStop.procedure.map((step, index) => (
+                    <li key={index} className="flex items-start space-x-2">
+                      <span className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        {index + 1}
+                      </span>
+                      <span className="text-sm text-blue-800">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* AI-Generated Scripts */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 flex items-center space-x-2">
-            <BookOpen className="h-5 w-5" />
-            <span>Essential Rights</span>
-          </h3>
-          <Button variant="icon" onClick={shareRights}>
-            <Share2 className="h-4 w-4" />
+          <h2 className="text-lg font-semibold flex items-center">
+            <Sparkles className="w-5 h-5 mr-2 text-purple-600" />
+            AI-Powered Scripts
+          </h2>
+          <Button
+            onClick={generateAIScript}
+            disabled={isGeneratingScript}
+            variant="outline"
+            size="sm"
+          >
+            {isGeneratingScript ? 'Generating...' : 'Generate Script'}
           </Button>
         </div>
-        <div className="space-y-3">
-          {currentRights.essentials.map((right, index) => (
-            <div key={index} className="flex items-start space-x-3">
-              <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-              <p className="text-gray-700">{right}</p>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {/* Scripts Section */}
-      <Card className="p-6">
-        <button
-          onClick={() => toggleSection('scripts')}
-          className="w-full flex items-center justify-between mb-4"
-        >
-          <h3 className="font-semibold text-gray-900">What to Say - Ready Scripts</h3>
-          {expandedSections.scripts ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-        </button>
         
-        {expandedSections.scripts && (
+        <p className="text-sm text-gray-600 mb-4">
+          Get personalized scripts for your specific scenario in {stateName}
+        </p>
+
+        {aiScript && (
           <div className="space-y-4">
-            {Object.entries(currentRights.scripts).map(([key, script]) => (
-              <div key={key} className="p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900 mb-2 capitalize">
-                      {key.replace('_', ' ')}
-                    </h4>
-                    <p className="text-gray-700 italic">"{script}"</p>
-                  </div>
-                  <Button 
-                    variant="icon" 
-                    onClick={() => copyScript(script, key)}
-                    className={copiedScript === key ? 'text-accent' : ''}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
+            {aiScript.whatToSay && (
+              <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                <h4 className="font-medium text-green-800 mb-2">What to Say:</h4>
+                <div className="space-y-2">
+                  {aiScript.whatToSay.map((phrase, index) => (
+                    <div key={index} className="flex items-center justify-between bg-white p-2 rounded border">
+                      <span className="text-sm text-green-700">{phrase}</span>
+                      <Button
+                        onClick={() => handleCopyScript(phrase)}
+                        variant="ghost"
+                        size="sm"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
+            )}
 
-      {/* Warnings */}
-      <Card className="p-6 bg-orange-50 border border-orange-200">
-        <button
-          onClick={() => toggleSection('warnings')}
-          className="w-full flex items-center justify-between mb-4"
-        >
-          <h3 className="font-semibold text-orange-900 flex items-center space-x-2">
-            <AlertCircle className="h-5 w-5" />
-            <span>Important Warnings</span>
-          </h3>
-          {expandedSections.warnings ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-        </button>
-        
-        {expandedSections.warnings && (
-          <div className="space-y-3">
-            {currentRights.warnings.map((warning, index) => (
-              <div key={index} className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 flex-shrink-0"></div>
-                <p className="text-orange-800">{warning}</p>
+            {aiScript.keyRights && (
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <h4 className="font-medium text-blue-800 mb-2">Key Rights to Remember:</h4>
+                <ul className="space-y-1">
+                  {aiScript.keyRights.map((right, index) => (
+                    <li key={index} className="text-sm text-blue-700 flex items-start">
+                      <span className="mr-2">•</span>
+                      {right}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ))}
+            )}
+
+            {aiScript.deEscalationTips && (
+              <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                <h4 className="font-medium text-yellow-800 mb-2">De-escalation Tips:</h4>
+                <ul className="space-y-1">
+                  {aiScript.deEscalationTips.map((tip, index) => (
+                    <li key={index} className="text-sm text-yellow-700 flex items-start">
+                      <span className="mr-2">•</span>
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </Card>
 
-      {/* Disclaimer */}
-      <Card className="p-4 bg-gray-50">
-        <p className="text-xs text-gray-600 text-center">
-          This information is for educational purposes only and does not constitute legal advice. 
-          Laws vary by jurisdiction. Consult with a qualified attorney for specific legal guidance.
-        </p>
+      {/* Emergency Contacts */}
+      <Card className="p-6 bg-red-50 border-red-200">
+        <div className="flex items-center mb-4">
+          <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+          <h2 className="text-lg font-semibold text-red-800">Emergency Contacts</h2>
+        </div>
+        
+        <div className="grid md:grid-cols-3 gap-4">
+          <div className="text-center">
+            <p className="font-medium text-red-800">ACLU</p>
+            <p className="text-sm text-red-600">1-800-775-2258</p>
+          </div>
+          <div className="text-center">
+            <p className="font-medium text-red-800">NAACP Legal Defense</p>
+            <p className="text-sm text-red-600">1-212-965-2200</p>
+          </div>
+          <div className="text-center">
+            <p className="font-medium text-red-800">National Lawyers Guild</p>
+            <p className="text-sm text-red-600">1-415-285-5067</p>
+          </div>
+        </div>
       </Card>
     </div>
   )
