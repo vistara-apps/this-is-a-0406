@@ -1,136 +1,134 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Mic, Square, Play, Pause, Trash2, Share2, Clock, MapPin } from 'lucide-react'
+import { Mic, Square, Play, Pause, Trash2, Share2, Clock, MapPin, Download, AlertCircle } from 'lucide-react'
 import Card from '../ui/Card'
 import Button from '../ui/Button'
+import RecordingButton from '../RecordingButton'
+import ShareButton from '../ShareButton'
 import { useApp } from '../../context/AppContext'
+import { formatDate, formatDuration } from '../../lib/utils'
+import { getStateName } from '../../data/states'
+import toast from 'react-hot-toast'
 
 export default function RecordView() {
   const { state, dispatch } = useApp()
-  const [recordingTime, setRecordingTime] = useState(0)
+  const [recordings, setRecordings] = useState([])
   const [playingRecording, setPlayingRecording] = useState(null)
-  const intervalRef = useRef(null)
+  const [playingAudio, setPlayingAudio] = useState(null)
+  const audioRef = useRef(null)
 
   useEffect(() => {
-    if (state.isRecording) {
-      intervalRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1)
-      }, 1000)
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
-    }
+    // Load recordings from localStorage on component mount
+    loadRecordings()
+  }, [])
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
+  useEffect(() => {
+    // Update recordings when state changes
+    if (state.recordings) {
+      setRecordings(state.recordings)
     }
-  }, [state.isRecording])
+  }, [state.recordings])
 
-  const startRecording = async () => {
-    // In a real app, you would request microphone permissions here
-    // For demo purposes, we'll simulate the recording
-    
+  const loadRecordings = () => {
     try {
-      // Reset timer
-      setRecordingTime(0)
-      
-      // Start recording state
-      dispatch({ type: 'START_RECORDING' })
-      
-      // In a real app, you would start actual audio/video recording here
-      console.log('Recording started...')
-      
+      const savedRecordings = JSON.parse(localStorage.getItem('knowyourrights_recordings') || '[]')
+      setRecordings(savedRecordings)
     } catch (error) {
-      console.error('Failed to start recording:', error)
-      alert('Unable to access microphone. Please check permissions.')
+      console.error('Error loading recordings:', error)
     }
   }
 
-  const stopRecording = () => {
-    // Stop recording state
-    const newRecording = {
-      id: Date.now(),
-      timestamp: new Date().toISOString(),
-      duration: recordingTime,
-      location: state.user.state,
-      title: `Interaction ${new Date().toLocaleDateString()}`
+  const deleteRecording = async (recordingId) => {
+    try {
+      const updatedRecordings = recordings.filter(r => r.recordingId !== recordingId)
+      setRecordings(updatedRecordings)
+      localStorage.setItem('knowyourrights_recordings', JSON.stringify(updatedRecordings))
+      toast.success('Recording deleted')
+    } catch (error) {
+      console.error('Error deleting recording:', error)
+      toast.error('Failed to delete recording')
     }
-    
-    dispatch({ type: 'STOP_RECORDING', payload: newRecording })
-    setRecordingTime(0)
-    
-    console.log('Recording stopped and saved')
   }
 
-  const deleteRecording = (recordingId) => {
-    // In a real app, you would implement recording deletion
-    console.log('Delete recording:', recordingId)
-  }
-
-  const shareRecording = (recording) => {
-    const shareData = {
-      title: recording.title,
-      text: `Recorded interaction from ${new Date(recording.timestamp).toLocaleDateString()}`,
-      // In a real app, you would include the actual recording file
-    }
-
-    if (navigator.share) {
-      navigator.share(shareData)
+  const playRecording = (recording) => {
+    if (playingRecording === recording.recordingId) {
+      // Stop playing
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+      }
+      setPlayingRecording(null)
+      setPlayingAudio(null)
     } else {
-      // Fallback for browsers that don't support Web Share API
-      alert('Sharing functionality would be implemented here')
+      // Start playing
+      if (recording.filePath) {
+        if (audioRef.current) {
+          audioRef.current.src = recording.filePath
+          audioRef.current.play()
+          setPlayingRecording(recording.recordingId)
+          setPlayingAudio(recording.filePath)
+        }
+      } else {
+        toast.error('Recording file not available')
+      }
     }
   }
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  const downloadRecording = (recording) => {
+    if (recording.filePath) {
+      const link = document.createElement('a')
+      link.href = recording.filePath
+      link.download = `recording_${recording.recordingId}.webm`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast.success('Recording downloaded')
+    } else {
+      toast.error('Recording file not available')
+    }
   }
+
+  const stateName = getStateName(state.user.state)
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="text-center text-white mb-8">
-        <h1 className="text-3xl font-bold mb-2">Record Interaction</h1>
-        <p className="text-white/80">One-tap recording for your safety</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Record Interaction</h1>
+          <p className="text-gray-600">One-tap recording for your safety in {stateName}</p>
+        </div>
       </div>
 
       {/* Recording Interface */}
       <Card className="p-8 text-center">
-        {!state.isRecording ? (
-          <div className="space-y-6">
-            <div className="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center mx-auto hover:bg-red-600 transition-colors cursor-pointer" onClick={startRecording}>
-              <Mic className="h-12 w-12 text-white" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-2">Tap to Start Recording</h3>
-              <p className="text-gray-600 text-sm">Audio and video will be recorded securely</p>
-            </div>
-            <Button variant="primary" onClick={startRecording} className="px-8">
-              Start Recording
-            </Button>
+        <div className="space-y-6">
+          <div className="w-32 h-32 mx-auto">
+            <RecordingButton variant={state.isRecording ? 'stop' : 'start'} />
           </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center mx-auto recording-pulse">
-              <Square className="h-12 w-12 text-white" />
+          
+          {!state.isRecording ? (
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">Ready to Record</h3>
+              <p className="text-gray-600 text-sm">Audio will be recorded securely on your device</p>
             </div>
+          ) : (
             <div>
               <h3 className="font-semibold text-red-600 mb-2">Recording in Progress</h3>
-              <div className="text-2xl font-mono text-gray-900 mb-2">
-                {formatTime(recordingTime)}
-              </div>
               <p className="text-gray-600 text-sm">Keep your device steady and speak clearly</p>
             </div>
-            <Button variant="secondary" onClick={stopRecording} className="px-8">
-              Stop Recording
-            </Button>
-          </div>
-        )}
+          )}
+        </div>
       </Card>
+
+      {/* Hidden audio element for playback */}
+      <audio
+        ref={audioRef}
+        onEnded={() => {
+          setPlayingRecording(null)
+          setPlayingAudio(null)
+        }}
+        style={{ display: 'none' }}
+      />
 
       {/* Recording Tips */}
       <Card className="p-6">
@@ -169,48 +167,68 @@ export default function RecordView() {
 
       {/* Previous Recordings */}
       <Card className="p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Previous Recordings</h3>
+        <h3 className="font-semibold text-gray-900 mb-4">Your Recordings</h3>
         
-        {state.recordings.length === 0 ? (
+        {recordings.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Mic className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <p>No recordings yet</p>
-            <p className="text-sm">Your recordings will appear here</p>
+            <p className="text-sm">Your recordings will appear here after you record an interaction</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {state.recordings.map((recording) => (
-              <div key={recording.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            {recordings.map((recording) => (
+              <div key={recording.recordingId} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div className="flex items-center space-x-4">
                   <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
                     <Mic className="h-5 w-5 text-white" />
                   </div>
                   <div>
-                    <h4 className="font-medium text-gray-900">{recording.title}</h4>
+                    <h4 className="font-medium text-gray-900">
+                      Interaction Recording
+                    </h4>
                     <div className="flex items-center space-x-4 text-sm text-gray-500">
                       <span className="flex items-center space-x-1">
                         <Clock className="h-3 w-3" />
-                        <span>{formatTime(recording.duration)}</span>
+                        <span>{formatDuration(recording.duration)}</span>
                       </span>
                       <span className="flex items-center space-x-1">
                         <MapPin className="h-3 w-3" />
-                        <span>{recording.location}</span>
+                        <span>{getStateName(recording.location)}</span>
                       </span>
-                      <span>{new Date(recording.timestamp).toLocaleDateString()}</span>
+                      <span>{formatDate(recording.timestamp)}</span>
                     </div>
                   </div>
                 </div>
                 
                 <div className="flex items-center space-x-2">
                   <Button 
-                    variant="icon" 
-                    onClick={() => shareRecording(recording)}
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => playRecording(recording)}
+                    className={playingRecording === recording.recordingId ? 'text-red-600' : ''}
                   >
-                    <Share2 className="h-4 w-4" />
+                    {playingRecording === recording.recordingId ? (
+                      <Pause className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
                   </Button>
+                  
                   <Button 
-                    variant="icon" 
-                    onClick={() => deleteRecording(recording.id)}
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => downloadRecording(recording)}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  
+                  <ShareButton content={recording} type="recording" />
+                  
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => deleteRecording(recording.recordingId)}
                     className="text-red-600 hover:text-red-700"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -223,11 +241,21 @@ export default function RecordView() {
       </Card>
 
       {/* Legal Notice */}
-      <Card className="p-4 bg-blue-50 border border-blue-200">
-        <p className="text-xs text-blue-800 text-center">
-          <strong>Legal Notice:</strong> Recording laws vary by state. In some states, you must inform all parties that you are recording. 
-          Check your local laws and consult with an attorney if needed.
-        </p>
+      <Card className="p-6 bg-yellow-50 border border-yellow-200">
+        <div className="flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-medium text-yellow-800 mb-2">Recording Laws in {stateName}</h3>
+            <p className="text-sm text-yellow-700 mb-3">
+              Recording laws vary by state. In some states, you must inform all parties that you are recording. 
+              {stateName} may have specific requirements for recording interactions with law enforcement.
+            </p>
+            <p className="text-xs text-yellow-600">
+              <strong>Disclaimer:</strong> This app provides general information only. 
+              Consult with a qualified attorney for legal advice specific to your situation.
+            </p>
+          </div>
+        </div>
       </Card>
     </div>
   )
